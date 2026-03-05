@@ -2,7 +2,7 @@
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, status
 
@@ -44,7 +44,7 @@ async def create_order(request: CreateOrderRequest) -> OrderResponse:
         amount=total_amount,
         items=request.items,
         status="pending",
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
 
     _orders[order_id] = order

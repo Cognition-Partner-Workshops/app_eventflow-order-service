@@ -25,7 +25,9 @@ class TestCreateOrder:
         mock_publish.assert_called_once()
 
     @patch("app.routers.orders.publish_order_created", new_callable=AsyncMock, return_value=True)
-    def test_create_order_eur(self, mock_publish, client: TestClient, sample_eur_order_payload: dict):
+    def test_create_order_eur(
+        self, mock_publish, client: TestClient, sample_eur_order_payload: dict
+    ):
         """Creating a EUR order should succeed."""
         response = client.post("/api/orders", json=sample_eur_order_payload)
 
@@ -36,7 +38,9 @@ class TestCreateOrder:
         mock_publish.assert_called_once()
 
     @patch("app.routers.orders.publish_order_created", new_callable=AsyncMock, return_value=True)
-    def test_create_order_jpy(self, mock_publish, client: TestClient, sample_jpy_order_payload: dict):
+    def test_create_order_jpy(
+        self, mock_publish, client: TestClient, sample_jpy_order_payload: dict
+    ):
         """Creating a JPY order should succeed in the Order Service.
 
         The Order Service correctly handles JPY — amounts are in yen (smallest unit).

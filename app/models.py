@@ -1,7 +1,7 @@
 """Pydantic models for orders and events."""
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -60,7 +60,7 @@ class OrderCreatedEvent(BaseModel):
 
     event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     event_type: str = Field(default="OrderCreated")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     data: "OrderEventData"
 
 
