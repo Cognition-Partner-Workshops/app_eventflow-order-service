@@ -5,6 +5,7 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, status
+from pydantic import BaseModel, Field
 
 from app.events import publish_order_created
 from app.models import (
@@ -76,6 +77,33 @@ async def create_order(request: CreateOrderRequest) -> OrderResponse:
             extra={"order_id": order_id},
         )
 
+    return order
+
+
+class UpdateOrderStatusRequest(BaseModel):
+    """Request body for updating order status."""
+    status: str = Field(..., description="New order status")
+
+
+@router.patch(
+    "/{order_id}/status",
+    response_model=OrderResponse,
+    summary="Update order status",
+)
+async def update_order_status(order_id: str, request: UpdateOrderStatusRequest) -> OrderResponse:
+    """Update the status of an order (called by payment service after processing)."""
+    order = _orders.get(order_id)
+    if order is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Order {order_id} not found",
+        )
+    order.status = request.status
+    logger.info(
+        "Order %s status updated to %s",
+        order_id,
+        request.status,
+    )
     return order
 
 
