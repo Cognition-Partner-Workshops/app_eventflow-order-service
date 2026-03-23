@@ -1,4 +1,16 @@
-"""Order API endpoints."""
+"""Order API endpoints.
+
+This module implements the REST API for order lifecycle management. Orders are
+stored in-memory (suitable for demo / single-instance deployments) and published
+as events to Azure Service Bus so downstream services (e.g. payment-service)
+can react asynchronously.
+
+Flow:
+    1. Client POSTs a new order.
+    2. This service persists it, then publishes an OrderCreatedEvent.
+    3. The payment service consumes the event, processes payment, and calls
+       back via PATCH /{order_id}/status to update the order.
+"""
 
 import logging
 import uuid
@@ -19,7 +31,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
 
-# In-memory store for demo purposes
+# In-memory store keyed by order_id.  Deliberately simple: no persistence
+# across restarts.  In production this would be backed by a database, but for
+# this event-driven demo the store only needs to survive long enough for the
+# payment-service callback to arrive.
 _orders: dict[str, OrderResponse] = {}
 
 
@@ -34,6 +49,11 @@ async def create_order(request: CreateOrderRequest) -> OrderResponse:
 
     The amount is calculated as the sum of (unit_price * quantity) for all items.
     All monetary values are in the smallest currency unit (cents for USD, yen for JPY).
+
+    Event publishing is best-effort: if Service Bus is unreachable the order is
+    still created and returned to the caller, but downstream processing (e.g.
+    payment) will not be triggered.  The warning log allows operators to detect
+    and reconcile missed events.
     """
     order_id = str(uuid.uuid4())
     total_amount = sum(item.unit_price * item.quantity for item in request.items)
@@ -60,7 +80,9 @@ async def create_order(request: CreateOrderRequest) -> OrderResponse:
         },
     )
 
-    # Publish event to Service Bus for downstream processing
+    # Publish event to Service Bus so the payment-service (and any other
+    # subscribers) can begin processing.  The event carries a full snapshot of
+    # the order so consumers don't need to call back for details.
     event = OrderCreatedEvent(
         data=OrderEventData(
             order_id=order_id,
@@ -72,6 +94,8 @@ async def create_order(request: CreateOrderRequest) -> OrderResponse:
     )
     published = await publish_order_created(event)
     if not published:
+        # Graceful degradation: the order exists in our store but no downstream
+        # service will know about it until the event is retried or reconciled.
         logger.warning(
             "Order created but event not published — downstream services will not process it",
             extra={"order_id": order_id},
@@ -91,7 +115,13 @@ class UpdateOrderStatusRequest(BaseModel):
     summary="Update order status",
 )
 async def update_order_status(order_id: str, request: UpdateOrderStatusRequest) -> OrderResponse:
-    """Update the status of an order (called by payment service after processing)."""
+    """Update the status of an order.
+
+    This endpoint acts as the callback for the payment-service: after it
+    processes payment for an OrderCreatedEvent, it PATCHes the order status
+    back here (e.g. "paid", "payment_failed").  This closes the async
+    communication loop between the two services.
+    """
     order = _orders.get(order_id)
     if order is None:
         raise HTTPException(
