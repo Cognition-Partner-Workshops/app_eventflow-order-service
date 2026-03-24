@@ -1,4 +1,9 @@
-"""Azure Service Bus event publisher."""
+"""Azure Service Bus event publisher.
+
+Manages a singleton ``ServiceBusClient`` and provides helper functions to publish
+``OrderCreated`` events, check Service Bus connectivity, and cleanly shut down
+the client on application exit.
+"""
 
 import json
 import logging
@@ -16,7 +21,12 @@ _sender = None
 
 
 def get_servicebus_client() -> ServiceBusClient | None:
-    """Get or create the Service Bus client singleton."""
+    """Return the Service Bus client singleton, creating it on first call.
+
+    Returns:
+        The ``ServiceBusClient`` instance, or ``None`` if the connection string
+        is not configured or client creation failed.
+    """
     global _client
     if _client is None and settings.azure_servicebus_connection_string:
         try:
@@ -85,7 +95,14 @@ async def publish_order_created(event: OrderCreatedEvent) -> bool:
 
 
 async def check_servicebus_health() -> bool:
-    """Check if Service Bus connection is healthy."""
+    """Check whether the Service Bus connection is healthy.
+
+    Opens a short-lived receiver on the configured queue to validate
+    connectivity. Used by the ``/ready`` readiness endpoint.
+
+    Returns:
+        ``True`` if the connection is healthy, ``False`` otherwise.
+    """
     client = get_servicebus_client()
     if client is None:
         return False
@@ -104,7 +121,11 @@ async def check_servicebus_health() -> bool:
 
 
 def close_servicebus_client() -> None:
-    """Close the Service Bus client."""
+    """Close the Service Bus client and release its resources.
+
+    Called during application shutdown via the FastAPI lifespan handler.
+    Safe to call even if the client was never created.
+    """
     global _client
     if _client is not None:
         try:

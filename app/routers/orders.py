@@ -1,4 +1,9 @@
-"""Order API endpoints."""
+"""Order API endpoints.
+
+Provides CRUD operations for orders with an in-memory store. When a new order
+is created, an ``OrderCreated`` event is published to Azure Service Bus for
+downstream processing by the Payment Service.
+"""
 
 import logging
 import uuid
@@ -81,7 +86,12 @@ async def create_order(request: CreateOrderRequest) -> OrderResponse:
 
 
 class UpdateOrderStatusRequest(BaseModel):
-    """Request body for updating order status."""
+    """Request body for ``PATCH /api/orders/{order_id}/status``.
+
+    Attributes:
+        status: The new status value (e.g., ``paid``, ``failed``).
+    """
+
     status: str = Field(..., description="New order status")
 
 
@@ -91,7 +101,13 @@ class UpdateOrderStatusRequest(BaseModel):
     summary="Update order status",
 )
 async def update_order_status(order_id: str, request: UpdateOrderStatusRequest) -> OrderResponse:
-    """Update the status of an order (called by payment service after processing)."""
+    """Update the status of an existing order.
+
+    Typically called by the Payment Service after processing the order.
+
+    Raises:
+        HTTPException: 404 if the order ID is not found.
+    """
     order = _orders.get(order_id)
     if order is None:
         raise HTTPException(
@@ -113,7 +129,11 @@ async def update_order_status(order_id: str, request: UpdateOrderStatusRequest) 
     summary="Get order by ID",
 )
 async def get_order(order_id: str) -> OrderResponse:
-    """Retrieve an order by its ID."""
+    """Retrieve a single order by its unique identifier.
+
+    Raises:
+        HTTPException: 404 if the order ID is not found.
+    """
     order = _orders.get(order_id)
     if order is None:
         raise HTTPException(
@@ -129,7 +149,11 @@ async def get_order(order_id: str) -> OrderResponse:
     summary="List recent orders",
 )
 async def list_orders(limit: int = 50) -> list[OrderResponse]:
-    """List the most recent orders."""
+    """List the most recent orders, sorted by creation time (newest first).
+
+    Args:
+        limit: Maximum number of orders to return (default 50).
+    """
     orders = list(_orders.values())
     orders.sort(key=lambda o: o.created_at, reverse=True)
     return orders[:limit]

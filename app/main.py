@@ -1,4 +1,9 @@
-"""EventFlow Order Service — FastAPI application entry point."""
+"""EventFlow Order Service — FastAPI application entry point.
+
+Configures the FastAPI app with CORS middleware, lifespan management for the
+Azure Service Bus client, and health/readiness endpoints. The order API routes
+are mounted from ``app.routers.orders``.
+"""
 
 import logging
 from collections.abc import AsyncIterator
