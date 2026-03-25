@@ -1,4 +1,11 @@
-"""Order API endpoints."""
+"""Order API endpoints.
+
+Provides CRUD operations for orders and publishes ``OrderCreated`` events
+to Azure Service Bus for downstream processing by the payment service.
+
+All monetary values are expressed in the smallest currency unit
+(e.g. cents for USD, yen for JPY).
+"""
 
 import logging
 import uuid
@@ -19,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
 
-# In-memory store for demo purposes
+# In-memory store — sufficient for demos; swap with a database for production.
 _orders: dict[str, OrderResponse] = {}
 
 
@@ -129,7 +136,11 @@ async def get_order(order_id: str) -> OrderResponse:
     summary="List recent orders",
 )
 async def list_orders(limit: int = 50) -> list[OrderResponse]:
-    """List the most recent orders."""
+    """List the most recent orders, sorted newest-first.
+
+    Args:
+        limit: Maximum number of orders to return (default 50).
+    """
     orders = list(_orders.values())
     orders.sort(key=lambda o: o.created_at, reverse=True)
     return orders[:limit]
