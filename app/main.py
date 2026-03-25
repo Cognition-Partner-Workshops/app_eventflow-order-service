@@ -1,4 +1,9 @@
-"""EventFlow Order Service — FastAPI application entry point."""
+"""EventFlow Order Service — FastAPI application entry point.
+
+This service accepts customer orders via a REST API and publishes
+``OrderCreated`` events to Azure Service Bus for downstream processing
+(e.g. by the payment service).
+"""
 
 import logging
 from collections.abc import AsyncIterator
@@ -11,7 +16,7 @@ from app.config import settings
 from app.events import check_servicebus_health, close_servicebus_client
 from app.routers import orders
 
-# Configure structured logging
+# Configure structured logging — level is driven by the LOG_LEVEL env var.
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
@@ -21,7 +26,11 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-    """Manage application startup and shutdown."""
+    """Manage application startup and shutdown.
+
+    On startup: logs service metadata.
+    On shutdown: closes the Azure Service Bus client to release connections.
+    """
     logger.info(
         "Starting %s v%s (env=%s)",
         settings.service_name,

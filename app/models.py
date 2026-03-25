@@ -1,4 +1,9 @@
-"""Pydantic models for orders and events."""
+"""Pydantic models for orders and events.
+
+Monetary amounts are represented as integers in the smallest currency unit
+(e.g. cents for USD, yen for JPY).  See ``ZERO_DECIMAL_CURRENCIES`` for
+currencies where the base unit *is* the smallest unit.
+"""
 
 import uuid
 from datetime import UTC, datetime
@@ -8,7 +13,7 @@ from pydantic import BaseModel, Field
 
 
 class Currency(str, Enum):
-    """Supported currencies with their decimal place counts."""
+    """ISO 4217 currency codes accepted by the order service."""
 
     USD = "USD"
     EUR = "EUR"
@@ -56,7 +61,11 @@ class OrderResponse(BaseModel):
 
 
 class OrderCreatedEvent(BaseModel):
-    """Event published when an order is created."""
+    """Event published to Azure Service Bus when an order is created.
+
+    The ``event_id`` and ``timestamp`` are auto-generated so the caller
+    only needs to supply the ``data`` payload.
+    """
 
     event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     event_type: str = Field(default="OrderCreated")
@@ -65,7 +74,15 @@ class OrderCreatedEvent(BaseModel):
 
 
 class OrderEventData(BaseModel):
-    """Data payload of the OrderCreated event."""
+    """Data payload of the OrderCreated event.
+
+    Attributes:
+        order_id: Unique identifier for the order.
+        customer_id: Identifier of the customer who placed the order.
+        currency: ISO 4217 currency code.
+        amount: Total order amount in the smallest currency unit.
+        items: Line items included in the order.
+    """
 
     order_id: str
     customer_id: str

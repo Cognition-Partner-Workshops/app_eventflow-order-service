@@ -1,4 +1,10 @@
-"""Azure Service Bus event publisher."""
+"""Azure Service Bus event publisher.
+
+Manages a module-level Service Bus client singleton and provides
+``publish_order_created`` for sending OrderCreated events to the
+configured queue.  When the connection string is empty (local dev)
+all publish calls gracefully return ``False`` without raising.
+"""
 
 import json
 import logging
@@ -11,6 +17,7 @@ from app.models import OrderCreatedEvent
 
 logger = logging.getLogger(__name__)
 
+# Module-level singleton — lazily initialised by get_servicebus_client().
 _client: ServiceBusClient | None = None
 _sender = None
 
@@ -104,7 +111,7 @@ async def check_servicebus_health() -> bool:
 
 
 def close_servicebus_client() -> None:
-    """Close the Service Bus client."""
+    """Close the Service Bus client and reset the module-level singleton."""
     global _client
     if _client is not None:
         try:
