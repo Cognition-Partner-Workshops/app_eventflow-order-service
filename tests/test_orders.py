@@ -113,6 +113,98 @@ class TestGetOrder:
         assert response.status_code == 404
 
 
+class TestUpdateOrderStatus:
+    """Tests for PATCH /api/orders/{order_id}/status."""
+
+    @patch("app.routers.orders.publish_order_created", new_callable=AsyncMock, return_value=True)
+    def test_update_order_status_success(
+        self, mock_publish, client: TestClient, sample_order_payload: dict
+    ):
+        """Updating an existing order's status should succeed."""
+        create_resp = client.post("/api/orders", json=sample_order_payload)
+        order_id = create_resp.json()["order_id"]
+
+        response = client.patch(
+            f"/api/orders/{order_id}/status",
+            json={"status": "paid"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["order_id"] == order_id
+        assert data["status"] == "paid"
+        assert data["customer_id"] == "cust-001"
+        assert data["currency"] == "USD"
+        assert data["amount"] == 10997
+
+    def test_update_order_status_not_found(self, client: TestClient):
+        """Updating a non-existent order should return 404."""
+        response = client.patch(
+            "/api/orders/nonexistent-id/status",
+            json={"status": "paid"},
+        )
+
+        assert response.status_code == 404
+        assert "nonexistent-id" in response.json()["detail"]
+
+    @patch("app.routers.orders.publish_order_created", new_callable=AsyncMock, return_value=True)
+    def test_update_order_status_multiple_transitions(
+        self, mock_publish, client: TestClient, sample_order_payload: dict
+    ):
+        """Order status should be updatable through multiple transitions."""
+        create_resp = client.post("/api/orders", json=sample_order_payload)
+        order_id = create_resp.json()["order_id"]
+
+        # First transition: pending -> paid
+        resp1 = client.patch(
+            f"/api/orders/{order_id}/status",
+            json={"status": "paid"},
+        )
+        assert resp1.status_code == 200
+        assert resp1.json()["status"] == "paid"
+
+        # Second transition: paid -> fulfilled
+        resp2 = client.patch(
+            f"/api/orders/{order_id}/status",
+            json={"status": "fulfilled"},
+        )
+        assert resp2.status_code == 200
+        assert resp2.json()["status"] == "fulfilled"
+
+        # Verify the order retains the latest status via GET
+        get_resp = client.get(f"/api/orders/{order_id}")
+        assert get_resp.status_code == 200
+        assert get_resp.json()["status"] == "fulfilled"
+
+    def test_update_order_status_missing_body(self, client: TestClient):
+        """Updating status without a request body should return 422."""
+        response = client.patch("/api/orders/some-id/status")
+        assert response.status_code == 422
+
+    @patch("app.routers.orders.publish_order_created", new_callable=AsyncMock, return_value=True)
+    def test_update_order_status_preserves_order_data(
+        self, mock_publish, client: TestClient, sample_jpy_order_payload: dict
+    ):
+        """Updating status should not alter other order fields."""
+        create_resp = client.post("/api/orders", json=sample_jpy_order_payload)
+        created = create_resp.json()
+        order_id = created["order_id"]
+
+        response = client.patch(
+            f"/api/orders/{order_id}/status",
+            json={"status": "paid"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "paid"
+        assert data["customer_id"] == created["customer_id"]
+        assert data["currency"] == created["currency"]
+        assert data["amount"] == created["amount"]
+        assert data["items"] == created["items"]
+        assert data["order_id"] == created["order_id"]
+
+
 class TestListOrders:
     """Tests for GET /api/orders."""
 
