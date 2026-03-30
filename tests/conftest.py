@@ -1,4 +1,8 @@
-"""Shared test fixtures for the Order Service."""
+"""Shared test fixtures for the Order Service.
+
+Provides reusable ``pytest`` fixtures such as the FastAPI test client and
+sample order payloads in various currencies.
+"""
 
 import pytest
 from fastapi.testclient import TestClient

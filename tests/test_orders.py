@@ -1,4 +1,9 @@
-"""Tests for the Order API endpoints."""
+"""Tests for the Order API endpoints.
+
+Covers order creation (including multi-currency and validation edge cases),
+retrieval, listing, and the health/readiness probes.  Service Bus publishing
+is mocked so tests run without external dependencies.
+"""
 
 from unittest.mock import AsyncMock, patch
 
@@ -56,29 +61,38 @@ class TestCreateOrder:
 
     def test_create_order_empty_items(self, client: TestClient):
         """Orders with no items should be rejected."""
-        response = client.post("/api/orders", json={
-            "customer_id": "cust-001",
-            "currency": "USD",
-            "items": [],
-        })
+        response = client.post(
+            "/api/orders",
+            json={
+                "customer_id": "cust-001",
+                "currency": "USD",
+                "items": [],
+            },
+        )
         assert response.status_code == 422
 
     def test_create_order_invalid_currency(self, client: TestClient):
         """Orders with unsupported currencies should be rejected."""
-        response = client.post("/api/orders", json={
-            "customer_id": "cust-001",
-            "currency": "XYZ",
-            "items": [{"product_id": "p1", "name": "Test", "quantity": 1, "unit_price": 100}],
-        })
+        response = client.post(
+            "/api/orders",
+            json={
+                "customer_id": "cust-001",
+                "currency": "XYZ",
+                "items": [{"product_id": "p1", "name": "Test", "quantity": 1, "unit_price": 100}],
+            },
+        )
         assert response.status_code == 422
 
     def test_create_order_negative_quantity(self, client: TestClient):
         """Orders with negative quantity should be rejected."""
-        response = client.post("/api/orders", json={
-            "customer_id": "cust-001",
-            "currency": "USD",
-            "items": [{"product_id": "p1", "name": "Test", "quantity": -1, "unit_price": 100}],
-        })
+        response = client.post(
+            "/api/orders",
+            json={
+                "customer_id": "cust-001",
+                "currency": "USD",
+                "items": [{"product_id": "p1", "name": "Test", "quantity": -1, "unit_price": 100}],
+            },
+        )
         assert response.status_code == 422
 
     @patch("app.routers.orders.publish_order_created", new_callable=AsyncMock, return_value=False)

@@ -1,4 +1,9 @@
-"""Order API endpoints."""
+"""Order API endpoints.
+
+Implements CRUD-style operations for orders.  Created orders are persisted in
+an in-memory dictionary (suitable for demos) and an ``OrderCreated`` event is
+published to Azure Service Bus so downstream services can react.
+"""
 
 import logging
 import uuid
@@ -19,7 +24,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
 
-# In-memory store for demo purposes
+# In-memory order store keyed by ``order_id``.  Suitable for single-instance
+# demos; a real deployment would use a persistent database.
 _orders: dict[str, OrderResponse] = {}
 
 
@@ -32,8 +38,12 @@ _orders: dict[str, OrderResponse] = {}
 async def create_order(request: CreateOrderRequest) -> OrderResponse:
     """Create a new order and publish an OrderCreated event.
 
-    The amount is calculated as the sum of (unit_price * quantity) for all items.
-    All monetary values are in the smallest currency unit (cents for USD, yen for JPY).
+    The total ``amount`` is calculated as the sum of ``unit_price * quantity``
+    for every item in the request.  All monetary values are in the smallest
+    currency unit (e.g. cents for USD, yen for JPY).
+
+    If the event cannot be published to Service Bus the order is still
+    persisted locally but downstream services will **not** be notified.
     """
     order_id = str(uuid.uuid4())
     total_amount = sum(item.unit_price * item.quantity for item in request.items)
@@ -48,7 +58,7 @@ async def create_order(request: CreateOrderRequest) -> OrderResponse:
         created_at=datetime.now(UTC),
     )
 
-    _orders[order_id] = order
+    _orders[order_id] = order  # persist before publishing to avoid data loss
 
     logger.info(
         "Order created",
@@ -60,7 +70,7 @@ async def create_order(request: CreateOrderRequest) -> OrderResponse:
         },
     )
 
-    # Publish event to Service Bus for downstream processing
+    # Publish event to Service Bus so the Payment Service can initiate a charge.
     event = OrderCreatedEvent(
         data=OrderEventData(
             order_id=order_id,
@@ -81,8 +91,9 @@ async def create_order(request: CreateOrderRequest) -> OrderResponse:
 
 
 class UpdateOrderStatusRequest(BaseModel):
-    """Request body for updating order status."""
-    status: str = Field(..., description="New order status")
+    """Request body for ``PATCH /api/orders/{order_id}/status``."""
+
+    status: str = Field(..., description="New order status (e.g. 'paid', 'failed')")
 
 
 @router.patch(
@@ -91,7 +102,11 @@ class UpdateOrderStatusRequest(BaseModel):
     summary="Update order status",
 )
 async def update_order_status(order_id: str, request: UpdateOrderStatusRequest) -> OrderResponse:
-    """Update the status of an order (called by payment service after processing)."""
+    """Update the status of an existing order.
+
+    Typically called by the Payment Service callback after a charge has been
+    processed (e.g. setting status to ``"paid"`` or ``"failed"``).
+    """
     order = _orders.get(order_id)
     if order is None:
         raise HTTPException(
@@ -113,7 +128,11 @@ async def update_order_status(order_id: str, request: UpdateOrderStatusRequest) 
     summary="Get order by ID",
 )
 async def get_order(order_id: str) -> OrderResponse:
-    """Retrieve an order by its ID."""
+    """Retrieve a single order by its unique identifier.
+
+    Raises:
+        HTTPException: 404 if the order does not exist.
+    """
     order = _orders.get(order_id)
     if order is None:
         raise HTTPException(
@@ -129,7 +148,11 @@ async def get_order(order_id: str) -> OrderResponse:
     summary="List recent orders",
 )
 async def list_orders(limit: int = 50) -> list[OrderResponse]:
-    """List the most recent orders."""
+    """List the most recent orders, newest first.
+
+    Args:
+        limit: Maximum number of orders to return (default 50).
+    """
     orders = list(_orders.values())
     orders.sort(key=lambda o: o.created_at, reverse=True)
     return orders[:limit]

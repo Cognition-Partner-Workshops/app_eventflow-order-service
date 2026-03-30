@@ -1,4 +1,9 @@
-"""Azure Service Bus event publisher."""
+"""Azure Service Bus event publisher.
+
+Provides a thin wrapper around the Azure Service Bus SDK for publishing
+``OrderCreated`` events.  A module-level singleton client is lazily
+initialized on first use and reused for the lifetime of the process.
+"""
 
 import json
 import logging
@@ -11,12 +16,19 @@ from app.models import OrderCreatedEvent
 
 logger = logging.getLogger(__name__)
 
+# Module-level Service Bus client singleton.  Lazily initialized by
+# ``get_servicebus_client()`` and torn down by ``close_servicebus_client()``.
 _client: ServiceBusClient | None = None
 _sender = None
 
 
 def get_servicebus_client() -> ServiceBusClient | None:
-    """Get or create the Service Bus client singleton."""
+    """Get or create the Service Bus client singleton.
+
+    Returns:
+        The shared ``ServiceBusClient`` instance, or ``None`` if the
+        connection string is not configured or initialization failed.
+    """
     global _client
     if _client is None and settings.azure_servicebus_connection_string:
         try:
@@ -85,7 +97,14 @@ async def publish_order_created(event: OrderCreatedEvent) -> bool:
 
 
 async def check_servicebus_health() -> bool:
-    """Check if Service Bus connection is healthy."""
+    """Check if Service Bus connection is healthy.
+
+    Opens a short-lived receiver against the configured queue to validate
+    connectivity.  Used by the ``/ready`` endpoint.
+
+    Returns:
+        ``True`` if the receiver could be opened successfully.
+    """
     client = get_servicebus_client()
     if client is None:
         return False
@@ -104,7 +123,10 @@ async def check_servicebus_health() -> bool:
 
 
 def close_servicebus_client() -> None:
-    """Close the Service Bus client."""
+    """Close the Service Bus client and reset the module-level singleton.
+
+    Called during application shutdown (see ``lifespan`` in ``main.py``).
+    """
     global _client
     if _client is not None:
         try:
