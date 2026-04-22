@@ -113,6 +113,52 @@ class TestGetOrder:
         assert response.status_code == 404
 
 
+class TestUpdateOrderStatus:
+    """Tests for PATCH /api/orders/{order_id}/status."""
+
+    @patch("app.routers.orders.publish_order_created", new_callable=AsyncMock, return_value=True)
+    def test_update_order_status_success(
+        self, mock_publish, client: TestClient, sample_order_payload: dict
+    ):
+        """Should successfully update an existing order's status."""
+        create_resp = client.post("/api/orders", json=sample_order_payload)
+        order_id = create_resp.json()["order_id"]
+
+        response = client.patch(
+            f"/api/orders/{order_id}/status",
+            json={"status": "completed"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "completed"
+        assert response.json()["order_id"] == order_id
+
+    def test_update_order_status_not_found(self, client: TestClient):
+        """Should return 404 when order_id doesn't exist."""
+        response = client.patch(
+            "/api/orders/nonexistent-id/status",
+            json={"status": "completed"},
+        )
+        assert response.status_code == 404
+
+    @patch("app.routers.orders.publish_order_created", new_callable=AsyncMock, return_value=True)
+    def test_update_order_status_verified_via_get(
+        self, mock_publish, client: TestClient, sample_order_payload: dict
+    ):
+        """Should persist the status update (verify via GET)."""
+        create_resp = client.post("/api/orders", json=sample_order_payload)
+        order_id = create_resp.json()["order_id"]
+
+        client.patch(
+            f"/api/orders/{order_id}/status",
+            json={"status": "shipped"},
+        )
+
+        get_resp = client.get(f"/api/orders/{order_id}")
+        assert get_resp.status_code == 200
+        assert get_resp.json()["status"] == "shipped"
+
+
 class TestListOrders:
     """Tests for GET /api/orders."""
 
@@ -123,6 +169,44 @@ class TestListOrders:
         response = client.get("/api/orders")
         assert response.status_code == 200
         assert isinstance(response.json(), list)
+
+    @patch("app.routers.orders.publish_order_created", new_callable=AsyncMock, return_value=True)
+    def test_list_orders_with_limit(self, mock_publish, client: TestClient):
+        """Should respect the limit query parameter."""
+        from app.routers.orders import _orders
+
+        _orders.clear()
+
+        for i in range(5):
+            client.post("/api/orders", json={
+                "customer_id": f"cust-{i}",
+                "currency": "USD",
+                "items": [{"product_id": "p1", "name": "Item", "quantity": 1, "unit_price": 100}],
+            })
+
+        response = client.get("/api/orders?limit=3")
+        assert response.status_code == 200
+        assert len(response.json()) == 3
+
+    @patch("app.routers.orders.publish_order_created", new_callable=AsyncMock, return_value=True)
+    def test_list_orders_most_recent_first(self, mock_publish, client: TestClient):
+        """Should return orders sorted by most recent first."""
+        from app.routers.orders import _orders
+
+        _orders.clear()
+
+        for i in range(3):
+            client.post("/api/orders", json={
+                "customer_id": f"cust-{i}",
+                "currency": "USD",
+                "items": [{"product_id": "p1", "name": "Item", "quantity": 1, "unit_price": 100}],
+            })
+
+        response = client.get("/api/orders")
+        data = response.json()
+        assert len(data) == 3
+        timestamps = [item["created_at"] for item in data]
+        assert timestamps == sorted(timestamps, reverse=True)
 
 
 class TestHealthEndpoints:
