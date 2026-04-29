@@ -1,9 +1,9 @@
 """Order API endpoints."""
 
-import logging
 import uuid
 from datetime import UTC, datetime
 
+import structlog
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
@@ -15,7 +15,7 @@ from app.models import (
     OrderResponse,
 )
 
-logger = logging.getLogger(__name__)
+logger = structlog.stdlib.get_logger(__name__)
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
 
@@ -51,16 +51,19 @@ async def create_order(request: CreateOrderRequest) -> OrderResponse:
     _orders[order_id] = order
 
     logger.info(
-        "Order created",
-        extra={
-            "order_id": order_id,
-            "customer_id": request.customer_id,
-            "currency": request.currency.value,
-            "amount": total_amount,
-        },
+        "order_created",
+        order_id=order_id,
+        customer_id=request.customer_id,
+        currency=request.currency.value,
+        amount=total_amount,
+        item_count=len(request.items),
     )
 
-    # Publish event to Service Bus for downstream processing
+    from app.metrics import metrics_collector
+
+    if metrics_collector is not None:
+        metrics_collector.record_order_created()
+
     event = OrderCreatedEvent(
         data=OrderEventData(
             order_id=order_id,
@@ -73,8 +76,8 @@ async def create_order(request: CreateOrderRequest) -> OrderResponse:
     published = await publish_order_created(event)
     if not published:
         logger.warning(
-            "Order created but event not published — downstream services will not process it",
-            extra={"order_id": order_id},
+            "order_event_not_published",
+            order_id=order_id,
         )
 
     return order
@@ -100,9 +103,9 @@ async def update_order_status(order_id: str, request: UpdateOrderStatusRequest) 
         )
     order.status = request.status
     logger.info(
-        "Order %s status updated to %s",
-        order_id,
-        request.status,
+        "order_status_updated",
+        order_id=order_id,
+        new_status=request.status,
     )
     return order
 

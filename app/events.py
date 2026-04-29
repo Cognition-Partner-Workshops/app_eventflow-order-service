@@ -1,15 +1,15 @@
 """Azure Service Bus event publisher."""
 
 import json
-import logging
 
+import structlog
 from azure.servicebus import ServiceBusClient, ServiceBusMessage
 from azure.servicebus.exceptions import ServiceBusError
 
 from app.config import settings
 from app.models import OrderCreatedEvent
 
-logger = logging.getLogger(__name__)
+logger = structlog.stdlib.get_logger(__name__)
 
 _client: ServiceBusClient | None = None
 _sender = None
@@ -23,9 +23,9 @@ def get_servicebus_client() -> ServiceBusClient | None:
             _client = ServiceBusClient.from_connection_string(
                 settings.azure_servicebus_connection_string
             )
-            logger.info("Service Bus client initialized")
+            logger.info("servicebus_client_initialized")
         except Exception:
-            logger.exception("Failed to initialize Service Bus client")
+            logger.exception("servicebus_client_init_failed")
             _client = None
     return _client
 
@@ -42,9 +42,10 @@ async def publish_order_created(event: OrderCreatedEvent) -> bool:
     client = get_servicebus_client()
     if client is None:
         logger.warning(
-            "Service Bus client not available — event will not be published",
-            extra={"event_id": event.event_id},
+            "servicebus_client_unavailable",
+            event_id=event.event_id,
         )
+        _record_event_metric(success=False)
         return False
 
     try:
@@ -66,22 +67,32 @@ async def publish_order_created(event: OrderCreatedEvent) -> bool:
             sender.send_messages(message)
 
         logger.info(
-            "Published OrderCreated event",
-            extra={
-                "event_id": event.event_id,
-                "order_id": event.data.order_id,
-                "currency": event.data.currency,
-                "amount": event.data.amount,
-            },
+            "event_published",
+            event_id=event.event_id,
+            order_id=event.data.order_id,
+            queue_name=settings.azure_servicebus_queue_name,
+            currency=event.data.currency,
+            amount=event.data.amount,
         )
+        _record_event_metric(success=True)
         return True
 
     except ServiceBusError:
         logger.exception(
-            "Failed to publish event to Service Bus",
-            extra={"event_id": event.event_id},
+            "event_publish_failed",
+            event_id=event.event_id,
+            order_id=event.data.order_id,
+            queue_name=settings.azure_servicebus_queue_name,
         )
+        _record_event_metric(success=False)
         return False
+
+
+def _record_event_metric(*, success: bool) -> None:
+    from app.metrics import metrics_collector
+
+    if metrics_collector is not None:
+        metrics_collector.record_event_published(success=success)
 
 
 async def check_servicebus_health() -> bool:
@@ -95,11 +106,10 @@ async def check_servicebus_health() -> bool:
             max_wait_time=1,
         )
         with receiver:
-            # Just opening the receiver validates connectivity
             pass
         return True
     except ServiceBusError:
-        logger.exception("Service Bus health check failed")
+        logger.exception("servicebus_health_check_failed")
         return False
 
 
@@ -110,6 +120,6 @@ def close_servicebus_client() -> None:
         try:
             _client.close()
         except Exception:
-            logger.exception("Error closing Service Bus client")
+            logger.exception("servicebus_client_close_error")
         finally:
             _client = None
