@@ -1,35 +1,41 @@
 """EventFlow Order Service — FastAPI application entry point."""
 
-import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
+from app.error_handlers import register_error_handlers
 from app.events import check_servicebus_health, close_servicebus_client
+from app.logging_config import setup_logging
+from app.metrics import init_metrics
+from app.metrics import router as metrics_router
+from app.middleware import CorrelationIdMiddleware, RequestLoggingMiddleware
 from app.routers import orders
 
-# Configure structured logging
-logging.basicConfig(
-    level=getattr(logging, settings.log_level.upper(), logging.INFO),
-    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-)
-logger = logging.getLogger(__name__)
+setup_logging()
+
+logger = structlog.stdlib.get_logger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     """Manage application startup and shutdown."""
+    if settings.metrics_enabled:
+        init_metrics()
     logger.info(
-        "Starting %s v%s (env=%s)",
-        settings.service_name,
-        settings.service_version,
-        settings.environment,
+        "service_starting",
+        service_name=settings.service_name,
+        service_version=settings.service_version,
+        environment=settings.environment,
+        log_format=settings.log_format,
+        metrics_enabled=settings.metrics_enabled,
     )
     yield
-    logger.info("Shutting down %s", settings.service_name)
+    logger.info("service_stopping", service_name=settings.service_name)
     close_servicebus_client()
 
 
@@ -40,6 +46,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+register_error_handlers(app)
+
+app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -49,6 +59,7 @@ app.add_middleware(
 )
 
 app.include_router(orders.router)
+app.include_router(metrics_router)
 
 
 @app.get("/health", tags=["health"])
