@@ -125,6 +125,37 @@ class TestListOrders:
         assert isinstance(response.json(), list)
 
 
+class TestUpdateOrderStatus:
+    """Tests for PATCH /api/orders/{order_id}/status."""
+
+    @patch("app.routers.orders.publish_order_created", new_callable=AsyncMock, return_value=True)
+    def test_update_order_status_success(
+        self, mock_publish, client: TestClient, sample_order_payload: dict
+    ):
+        """Updating status of an existing order should succeed."""
+        create_resp = client.post("/api/orders", json=sample_order_payload)
+        order_id = create_resp.json()["order_id"]
+
+        response = client.patch(
+            f"/api/orders/{order_id}/status",
+            json={"status": "paid"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["order_id"] == order_id
+        assert data["status"] == "paid"
+
+    def test_update_order_status_not_found(self, client: TestClient):
+        """Updating status of a nonexistent order should return 404."""
+        response = client.patch(
+            "/api/orders/nonexistent-id/status",
+            json={"status": "paid"},
+        )
+        assert response.status_code == 404
+        assert "nonexistent-id" in response.json()["detail"]
+
+
 class TestHealthEndpoints:
     """Tests for health and readiness endpoints."""
 
