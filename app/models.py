@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 
 class Currency(str, Enum):
-    """Supported currencies with their decimal place counts."""
+    """Supported currencies."""
 
     USD = "USD"
     EUR = "EUR"
@@ -20,10 +20,37 @@ class Currency(str, Enum):
     AUD = "AUD"
     CNY = "CNY"
     INR = "INR"
+    VND = "VND"
+    BHD = "BHD"
+    KWD = "KWD"
+    OMR = "OMR"
 
 
-# Currencies that have zero decimal places (amount is already in the base unit)
-ZERO_DECIMAL_CURRENCIES: set[str] = {"JPY", "KRW"}
+# ISO 4217 minor-unit exponents keyed by currency code.
+# Exponent 0 → amount is already in the base unit (e.g. JPY, KRW).
+# Exponent 2 → 100 minor units per base unit (e.g. USD, EUR).
+# Exponent 3 → 1000 minor units per base unit (e.g. BHD, KWD, OMR).
+CURRENCY_EXPONENTS: dict[str, int] = {
+    "JPY": 0,
+    "KRW": 0,
+    "VND": 0,
+    "USD": 2,
+    "EUR": 2,
+    "GBP": 2,
+    "CHF": 2,
+    "CAD": 2,
+    "AUD": 2,
+    "CNY": 2,
+    "INR": 2,
+    "BHD": 3,
+    "KWD": 3,
+    "OMR": 3,
+}
+
+# Convenience set retained for backwards compatibility.
+ZERO_DECIMAL_CURRENCIES: set[str] = {
+    code for code, exp in CURRENCY_EXPONENTS.items() if exp == 0
+}
 
 
 class OrderItem(BaseModel):
